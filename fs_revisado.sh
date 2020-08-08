@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# Autor: Bruno Lima
+# Data de criação: 31/07/2020
+# Data de atualização: 07/08/2020
+# Versão: 0.9
+# Testado e homologado para a versão do Centos 8 X64
+
 ################################################################################
 ###                   Declaração de funções                                  ###
 ################################################################################
