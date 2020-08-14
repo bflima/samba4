@@ -10,6 +10,10 @@ _CONFIGURAR()
   FILE="/tmp/inicial.txt"
   if [ ! -e "$FILE" ] ; then
     clear
+    # Desabilitar o serviço systemd
+    systemctl stop systemd-resolved.service
+    systemctl mask systemd-resolved.service
+
     #Desabilitar o firewalld
     systemctl stop firewalld && systemctl disable firewalld
     #Desabilitar SELINUX
@@ -615,22 +619,6 @@ EOF
     cp $PATH_SAMBA/conf/smb.conf{,.bkp}
 
     sed -i '26i dns=none' /etc/NetworkManager/NetworkManager.conf
-
-    cat > /lib/systemd/system/samba-dc.service << EOF
-[Unit]
-Description= Samba 4 Active Directory
-After=syslog.target network.target remote-fs.target nss-lookup.target
-
-[Service]
-Type=forking
-LimitNOFILE=16384
-ExecStart=/usr/local/samba4/sbin/samba -D
-ExecReload=/usr/bin/kill -HUP $MAINPID
-PIDFile=/usr/local/samba4/var/run/samba.pid
-
-[Install]
-WantedBy=multi-user.target
-EOF
 
     systemctl enable --now samba-dc
 
