@@ -223,6 +223,29 @@ function _VIM()
 # Fim
 
 ################################################################################
+# Função para criação do dns reverso, devolve ip no formato arpa
+function _REVERSO()
+{
+  IP=$(grep -i IP /tmp/samba_info.db | cut -d "=" -f 2)
+  ARPA="in-addr.arpa"
+  RES=$(ipcalc -p $IP)
+
+  if [[ ${RES##*=} -eq "24" ]]
+    then
+      IP1=$(cut -d"." -f 1 <<< $IP)
+      IP2=$(cut -d"." -f 2 <<< $IP)
+      IP3=$(cut -d"." -f 3 <<< $IP)
+      REV=("${IP3}"\."${IP2}"\."${IP1}"\."${ARPA}")
+  elif [[ ${RES##*=} -eq "16" ]]
+    then
+      IP1=$(cut -d"." -f 1 <<< $IP)
+      IP2=$(cut -d"." -f 2 <<< $IP)
+      REV=("${IP2}"\."${IP1}"\."${ARPA}")
+  fi
+  echo $REV
+}
+
+################################################################################
 ###                             INICIO                                       ###
 # Função para configurar o SAMBA
 # Solicita informações para o usuario, realiza teste da entrada de dados
@@ -588,6 +611,9 @@ include "/etc/named.root.key";
 include "/usr/local/samba4/bind-dns/named.conf";
 EOF
 
+    cp /var/named/named.ca{,.bak}
+    sed -i '/AAAA/d' /var/named/named.ca
+
     echo "KRB5RCACHETYPE=\"none\"" >> /etc/sysconfig/named
 
     echo -e "\n[kdc]" >> "$PATH_SAMBA"/private/krb5.conf
@@ -620,7 +646,8 @@ EOF
 
     sed -i '26i dns=none' /etc/NetworkManager/NetworkManager.conf
 
-    systemctl enable --now samba-dc
+    SYSTEMD_SAMBA=$(find /lib/systemd/system -iname samba* | grep -o samba.*)
+    systemctl enable --now "$SYSTEMD_SAMBA"
 
     "$PATH_SAMBA"/sbin/samba_dnsupdate --verbose
 
@@ -631,6 +658,9 @@ EOF
     echo "Mostrando o ticket"
     /usr/bin/klist
     sleep 5
+
+    mkdir -p /var/log/samba
+    touch /var/log/samba/samba.log
 
 cat > /usr/local/samba4/conf/smb.conf << EOF
 [global]
@@ -652,6 +682,9 @@ cat > /usr/local/samba4/conf/smb.conf << EOF
         vfs objects = acl_xattr, recycle, dfs_samba4
         map acl inherit = Yes
         store dos attributes = Yes
+        log file = /var/log/samba/samba.log
+        log level = 3
+        max log size = 1024
 
 [sysvol]
         path = $PATH_SAMBA/var/locks/sysvol
@@ -682,6 +715,10 @@ EOF
 
   "$PATH_SAMBA"/bin/net rpc rights grant "${SAMBA_REINO^^}\Domain Admins" SeDiskOperatorPrivilege -U"${SAMBA_REINO^^}\administrator%$SENHA"
   "$PATH_SAMBA"/bin/net rpc rights list accounts -U"${SAMBA_REINO}\administrator%$SENHA"
+
+  IP_REVERSO=$(_REVERSO)
+  "$SAMBA_TOOL" dns zonecreate $(hostname) $IP_REVERSO -UAdministrator%"${SENHA}"
+  "$SAMBA_TOOL" dns add $(hostname) "$IP_REVERSO" "${IP##*.}" PTR "$SAMBA_DOM" -UAdministrator%"${SENHA}"
 
   /usr/local/samba4/bin/smbcontrol all reload-config
 
