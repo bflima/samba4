@@ -724,7 +724,8 @@ EOF
 
   which figlet > /dev/null || yum install figlet 2> /dev/null
   clear
-  echo "Favor criar a zona reversa e adicionar a rede no Services and Sites new subnet" | figlet -cf standard
+
+  echo "Favor criar a rede no Services and Sites new subnet" | figlet -cf standard
 
   cat > /srv/named.sh << EOF
 #!/bin/bash
