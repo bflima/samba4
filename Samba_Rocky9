@@ -1,53 +1,43 @@
 #!/usr/bin/env bash
 
+# Inicio das funções
+################################################################################
+# Função para mostrar mensagem de erro
+_MSG_ERRO_INFO() { clear ; whiptail --title "Erro" --msgbox "$1" 0 0 ; exit 20 ; }
+
+################################################################################
+
+# Função para mostrar mensagem
+_MSG_INFO(){ clear ; whiptail --title "Atenção" --msgbox "$1" 0 0 ; }
+
+################################################################################
+
+# Função para mostrar mensagem de sair
+_MSG_SAIR(){ clear ; whiptail --title "Aviso" --msgbox "$1" 0 0 ; exit 30 ; }
+
 # Função para verificar se o script está com privilegios de root, Caso não estiver finaliza o programa.
 # Pacote necessário whiptail para mensagem na tela.
 _VERIFICAR_ROOT()
 {
-  clear
-  MSG_ERRO="Erro ao executar script"
-  MSG_WHIP="Necessario permissao de root"
   which whiptail > /dev/null || yum install -y newt
-  [ "$EUID" -eq 0 ] || { whiptail --title "$MSG_ERRO" --msgbox "$MSG_WHIP" 0 0 ; exit 1 ; }
+  [ "$EUID" -eq 0 ] || _MSG_ERRO_INFO "Necessita permissão de root"
 }
-# Fim
 
 ################################################################################
 # Função para verificar o sistema operacional
-# Pacote necessário whiptail para mensagem na tela.
-_VERIFICAR_OS()
-{
-  clear
-  MSG_ERRO="Erro ao executar script"
-  MSG_WHIP="Sistema operacional não homologado, usar Centos e/ou Rocky Linux"
-  which whiptail > /dev/null || yum install -y newt
-  grep -oq "centos" /etc/os-release || { whiptail --title "$MSG_ERRO" --msgbox "$MSG_WHIP" 0 0 ; exit 1 ; }
-}
-# Fim
+_VERIFICAR_OS() { grep -oq "rocky" /etc/os-release || _MSG_ERRO_INFO "Sistema operacional não homologado, usar Centos 8 e/ou Rocky Linux 8" ; }
 
 # Função para verificar acesso a internert para baixar os pacotes necessários
-# Pacote necessário whiptail para mensagem na tela.
-_VERIFICAR_INTERNET()
-{
-  clear
-  MSG_ERRO="Erro ao executar script"
-  MSG_WHIP="Acesso a internet não está disponível"
-  which whiptail > /dev/null || yum install -y newt
-  if ! ping -c 2 "kernel.org" > /dev/null ; then { whiptail --title "$MSG_ERRO" --msgbox "$MSG_WHIP" 12 50 ; exit 1 ; } ; fi
-}
-# Fim
+_VERIFICAR_INTERNET(){ ping -c 2 -w 5 "kernel.org" > /dev/null || _MSG_ERRO_INFO "Acesso a internet não está disponível" ; }
 
 ################################################################################
 # Função para testar ip fornecido, utiliza programa auxiliar ipcalc
-# Se o retorno for diferente de sucesso ou tamanho igual a zero sai do programa
-testa_ip()
+_TESTA_IP()
 {
-  LOG_ERRO="/tmp/erro_inicial.txt"
   which ipcalc 1> /dev/null || yum -y install ipcalc 1> /dev/null
   IPCALC=$(which ipcalc) 1> /dev/null
-  if ! "$IPCALC" -c "$1" ; then { tput setaf 1; tput setab 7 ; echo "Erro ao digitar IP $1, Favor Verificar"; tput sgr0; exit 1 ; } fi
+  "$IPCALC" -c "$1" || _MSG_ERRO_INFO "Favor verificar o Endereço IP informado"
 }
-# Fim
 
 ################################################################################
 # Função para validar ip reverso para criação do dns no DC
@@ -58,6 +48,7 @@ _REVERSO()
   ARPA="in-addr.arpa"
   RES=$(ipcalc -p "${IP}/${MSK}")
 
+# Máscara classe C
   if [[ ${RES##*=} -ge "17" ]] && [[ ${RES##*=} -le "24" ]]
     then
       IP1=$(cut -d"." -f 1 <<< "${IP}")
@@ -65,12 +56,14 @@ _REVERSO()
       IP3=$(cut -d"." -f 3 <<< "${IP}")
       REV=("${IP3}"\."${IP2}"\."${IP1}"\."${ARPA}")
 
+# Máscara classe B
  elif [[ ${RES##*=} -ge "9" ]] && [[ ${RES##*=} -le "16" ]]
     then
       IP1=$(cut -d"." -f 1 <<< "${IP}")
       IP2=$(cut -d"." -f 2 <<< "${IP}")
       REV=("${IP2}"\."${IP1}"\."${ARPA}")
 
+# Máscara classe A
   else [[ ${RES##*=} -ge "1" ]] && [[ ${RES##*=} -le "8" ]]
       IP1=$(cut -d"." -f 1 <<< "${IP}")
       REV=("${IP1}"\."${ARPA}")
@@ -78,56 +71,6 @@ _REVERSO()
   fi
   echo "${REV[@]}"
 }
-# Fim
-
-################################################################################
-# Função para validar entrada dos campos digitados pelo usuario
-# Se o retorno for diferente de sucesso ou tamanho igual a zero sai do programa
-function validar()
-{
-	if [[ "$?" -ne "0" || ${#1} -eq "0" ]]
-    then
-        { whiptail --title "Erro ao validar informação" --msgbox "Favor verificar se campo está em branco" 0 0; exit 1 ; }
-  fi
-}
-# Fim
-
-################################################################################
-# Função para testar tamamho e complexidade de senha
-# Se o retorno for diferente de sucesso ou tamanho igual a zero sai do programa
-testa_senha()
-{
-  a=$1
-  LEN=${#a}
-  if [ "$LEN" -lt 8 ]; then { echo "Senha menor que 8"; exit; } fi
-
-  b=$(echo "$a" | grep -E "^.{8,255}" | \
-                  grep -E "[ABCDEFGHIJKLMNOPQRSTUVWXYZ]" | \
-                  grep -E "[abcdefghijklmnopqrstuvwxyz"] | \
-                  grep -E "[0-9]" | \
-                  grep -E "[\@\.\!\$\%\&\*\?\<\>\+\=\_\-]")
-
-# Letras alfabeticas
-#Se o resultado for vazio ou, uma condição tenha falhada
-  if [ -z "$b" ]
-    then
-      tput bold
-      cat << EOF
-      Senha nao atende criterio de complexidade:
-      Necessario 01 de cada item 
-      letra Maiuscula
-      letra Minuscula
-      Caracter especial
-      Digito numerico
-      Exemplo: Teste@123, P@\$\$word.1"
-EOF
-      tput sgr0
-      exit 50
-  else
-      echo "Senha validada com sucesso"
-  fi
-}
-# Fim
 
 ################################################################################
 # Função para escolher interface de rede caso exista mais de uma
@@ -144,7 +87,6 @@ _INTERFACE()
     #echo "${ip[i]}"
     arr=("${ip[i]}" "${arr[@]}")
   done
-
 
   whiptail_args=(
     --title "Escolha a interface de rede"
@@ -163,13 +105,8 @@ _INTERFACE()
   done
 
   indice=$(whiptail "${whiptail_args[@]}" 3>&1 1>&2 2>&3)
-  #whiptail_retval=$?
-  #declare -p indice whiptail_retval
-  #echo "Interface"
-  echo "${arr[${indice}-1]}"
+  # echo "${arr[${indice}-1]}"
 }
-
-# Fim
 
 ################################################################################
 # Função para escolher ip
@@ -208,40 +145,38 @@ _IP()
   #echo "Interface"
   echo "${arr[${indice}-1]}"
 }
-# Fim
 
-################################################################################
-# Função para mostrar mensagem de erro
-_MSG_ERRO(){ 
-whiptail --title "Erro" --msgbox "Favor verificar. Saindo..." 0 0
-exit 2
-}
-# Fim
+_VALIDAR_SENHA() {
+  senha="$1"
+  tamanho_minimo=8
 
-################################################################################
-_MSG_ERRO_INST(){ 
-  whiptail --title "Configuracao já realizada" --msgbox "Para repetir a instalacao remover o arquivo $1" 0 0 
-  exit 2
-}
-# Fim
+  # Verificar o comprimento da senha
+  [[ "${#senha}" -lt "$tamanho_minimo" ]] && _MSG_ERRO_INFO "Tamanho da senha informado é menor que 8 caracteres"
 
-################################################################################
-# Função para mostrar mensagem de erro
-_MSG_INFO(){ 
-whiptail --title "Atenção" --msgbox "$1" 0 0
-}
-# Fim
+  # Verificar a complexidade da senha usando expressões regulares
+  if ! echo "$senha" | grep -E '.*[A-Z].*' \
+                     | grep -E '.*[a-z].*' \
+                     | grep -E '.*[0-9].*' \
+                     | grep -E '.*[@.!$%&*?<>+=_-].*'; then
 
-################################################################################
-# Função para mostrar mensagem de sair
-_MSG_SAIR(){ 
-whiptail --title "Aviso" --msgbox "$1" 0 0 
-exit 3
+MSG_COMPLEXIDADE="Senha não atende aos critérios de complexidade:
+Necessário pelo menos um de cada item:
+  - Letra maiúscula
+  - Letra minúscula
+  - Dígito numérico
+  - Caractere especial
+Exemplos: 'Teste@123', 'P@\$\$word.1'
+"
+_MSG_ERRO_INFO "$MSG_COMPLEXIDADE"
+
+  fi
 }
-# Fim
+
+# Exemplo de uso:
+# testa_senha "MinhaSenha123!"
 
 #############################################################################################################################
-# Descrição:
+# Função _CONFIGURAR -> Descrição:
 # Função para instalação de pacotes necessários para o funcionamento do samba4
 # Após a execução é criado um arquivo na pasta /tmp.
 # Caso o arquivo exista o script é finalizado, necessário remover arquivo para liberar execução.
@@ -249,18 +184,19 @@ exit 3
 
 _CONFIGURAR()
 {
+  clear
   #Realizar testes antes de iniciar o script
   _VERIFICAR_ROOT
   _VERIFICAR_OS
   _VERIFICAR_INTERNET
   
   # Variáveis
-  CONTROLE="/tmp/controle_configurar.txt"
+  CONTROLE='/tmp/controle_configurar.txt'
   OS_RELEASE=$(grep -i platform /etc/os-release | grep -o "[0-9]")
   SAMBA_INIT="/opt"
   SAMBA_PATH="/usr/local/samba"
 
-  [[ -f $CONTROLE ]] && _MSG_ERRO_INST $CONTROLE
+  [[ -f $CONTROLE ]] && _MSG_ERRO_INFO "Script já executado, favor remover o arquivo para contiunuar $CONTROLE"
 
   # Desabilitar SELINUX
   SELINUX_CONF=$(find /etc/ -type f -iname config | grep selinux)
@@ -268,25 +204,35 @@ _CONFIGURAR()
   sed -i 's/^SELINUX=.*/SELINUX=disabled/g' "$SELINUX_CONF"
   setenforce 0
 
-  # Desabilitar o firewalld
-  systemctl stop firewalld && systemctl disable firewalld
+  # Liberar portas de funciomanento do Samba
+  FIREWALL_CONF=$(find /etc/ -iname firewalld.conf)
+  firewall-cmd --add-service={dns,ldap,ldaps,kerberos} --permanent
+  firewall-cmd --add-port={389/udp,135/tcp,135/udp,138/udp,138/tcp,137/tcp,137/udp,139/udp,139/tcp,445/tcp,445/udp,3268/udp,3268/tcp,3269/tcp,3269/udp,49152/tcp,49153/tcp} --permanent
+  
+  sed -i 's/^AllowZoneDrifting=.*/AllowZoneDrifting=no/' "$FIREWALL_CONF"
+  firewall-cmd --reload
+
+  # Para desabilitar o firewall descamentar a linha abaixo
+  # systemctl stop firewalld && systemctl disable firewalld
 
   #Atualizar sistema
   yum -y update && yum -y upgrade
 
   #Instalar repositorio EPEL e ferramentas de desenvolvimento e pacotes úteis
-  yum install tar vim ipcalc net-tools wget bash-completion chrony bind-utils bind expect yum-utils krb5-workstation -y
+  yum install tar vim ipcalc net-tools wget bash-completion chrony bind-utils bind expect yum-utils krb5-workstation rsyslog -y
   
   # Baixar Samba
-  wget https://download.samba.org/pub/samba/samba-latest.tar.gz
-  tar zxvf samba-latest.tar.gz -C "$SAMBA_INIT" || _MSG_ERRO
+  wget https://download.samba.org/pub/samba/samba-latest.tar.gz || _MSG_ERRO_INFO "Erro ao baixar arquivo"
+  tar zxvf samba-latest.tar.gz -C "$SAMBA_INIT" || _MSG_ERRO_INFO "Erro ao descompactar arquivo"
   
-  #Pacotes necessários
+  #Pacotes necessários ajustar mensagem Whiptail #####################
+  [[ "$OS_RELEASE" -eq 8 ]] || _MSG_ERRO_INFO "Versão homologada para Rocky Linux 8"
+
   SAMBA_BOOTSTRAP=$(find $SAMBA_INIT -iname bootstrap.sh | grep centos"$OS_RELEASE")
-  bash "$SAMBA_BOOTSTRAP" || _MSG_ERRO
+  bash "$SAMBA_BOOTSTRAP" || _MSG_ERRO_INFO "Erro ao executar arquivo de bootstrap"
 
   SAMBA_VERSAO=$(find /opt/ -maxdepth 1 -type d | grep "samba-[0-9]*")
-  cd "$SAMBA_VERSAO" || _MSG_ERRO
+  cd "$SAMBA_VERSAO" || _MSG_ERRO_INFO "Erro ao acessar pasta $SAMBA_VERSAO"
 
   #Compilando Samba4 Versão homologada para a instalação
   # Flags de compilação
@@ -299,8 +245,8 @@ _CONFIGURAR()
   --with-pammodulesdir=/usr/lib64/security                \
   --sysconfdir="$SAMBA_PATH"/conf
     
-  make -j "$(nproc)"  
-  make install       
+  make -j "$(nproc)" || _MSG_ERRO_INFO "Erro ao executar o make"
+  make install       || _MSG_ERRO_INFO "Erro ao executar a instalação"
 
   find "$SAMBA_PATH"/lib -type d > /etc/ld.so.conf.d/samba4.conf
   echo "$SAMBA_PATH"/lib64      >> /etc/ld.so.conf.d/samba4.conf
@@ -352,37 +298,38 @@ _CONF_SAMBA()
     [msg_senha]="Usar senha complexa:"
   )
 
-  [[ -f $CONTROLE ]] && _MSG_ERRO_INST $CONTROLE
+  [[ -f $CONTROLE ]] && _MSG_ERRO_INFO "Script já executado, favor remover o arquivo para contiunuar $CONTROLE"
 
   clear 
 
   # Verificar se existe mais de um ip cadastrado
   CONN=$(nmcli connection show | awk '{print $4}' | grep -v -i device)
-  [[ $(wc -l <<< "${CONN}") -gt 1 ]] || _MSG_INFO 'Mais de um ip ativo, favor desativar a interface para continuar'
+  [[ $(wc -l <<< "${CONN}") -eq 1 ]] || _MSG_ERRO_INFO 'Mais de um ip ativo, favor desativar a interface para continuar'
 
   #Definição e criação do banco de dados de variáveis para uso do samba4 
-  echo "Samba Info" > $SAMBA_DB || _MSG_INFO "Erro ao criar arquivo $SAMBA_DB, Favor Verificar"
+  echo "Samba Info" > $SAMBA_DB || _MSG_ERRO_INFO "Erro ao criar arquivo $SAMBA_DB, Favor Verificar"
 
   # Verificar se hostname está correto
   HOSTNAME=$(whiptail --title "${MSG_WHIP[hostname]}" --inputbox "${MSG_WHIP[msg_hostname]}" --fb 10 60 3>&1 1>&2 2>&3)
   
   # Se escolher cancelar finaliza o script
-  [[ $? -eq 1 ]] && _MSG_SAIR 'Saindo\nFavor executar novamente o script'  
+  [[ $? -eq 1 ]] && _MSG_SAIR 'Operação cancelada'  
 
    # Se campo ficar em branco o nome será alterado para dc_samba
-  HOSTNAME=${HOSTNAME:=dc_samba} 
+  HOSTNAME=${HOSTNAME:-dc_samba} 
 
   # Verificando tamanho do nome do DC
-  [[ "${#HOSTNAME}" -le 15 ]] || _MSG_ERRO 'Nome do DC maior que 15 caracteres'
+  [[ "${#HOSTNAME}" -le 15 ]] || _MSG_ERRO_INFO 'Nome do DC maior que 15 caracteres'
 
-  # Configurar Domínio
-  
+  # Configurar Domínio  
   DOMINIO=$(whiptail --title "${MSG_WHIP[dominio]}" --inputbox "${MSG_WHIP[msg_dominio]}" --fb 10 60 3>&1 1>&2 2>&3)
     
   # Se escolher cancelar finaliza o script
   [[ $? -eq 1 ]] && _MSG_SAIR 'Saindo\nFavor executar novamente o script'  
-  [[ "${#DOMINIO}" -ge 3 ]] || _MSG_ERRO 'DOMINIO menor que 3 caracteres'
-  [[ $(grep -cE "[.]" <<< "${DOMINIO}") -eq 0 ]] && _MSG_ERRO 'Erro ao informar dominio'
+  
+  # Verificar se domínio possui pontos e não é menor que três caracteres
+  [[ "${#DOMINIO}" -ge 3 ]] || _MSG_ERRO_INFO 'DOMINIO menor que 3 caracteres'
+  [[ $(grep -cE "[.]" <<< "${DOMINIO}") -eq 0 ]] && _MSG_ERRO_INFO 'Erro ao informar dominio'
 
   # Obter ip em uso atualmente
   IP_ATUAL=$(hostname -I | sed 's/ //')
@@ -434,12 +381,13 @@ _CONF_SAMBA()
 
   # Se escolher cancelar finaliza o script
   [[ $? -eq 1 ]] && _MSG_SAIR 'Saindo\nFavor executar novamente o script'
-    
+
   # Caso senha for em branco assume o valor abaixo
   SENHA_DOM=${SENHA_DOM:=Senha@123}
-    
+
+  # Validar requisitos da senha
   # Caso a senha não atender os requisitos de complexidade, COMENTAR A LINHA ABAIXO
-  # testa_senha ${SENHA_DOM}
+  _VALIDAR_SENHA "$SENHA_DOM"
 
   # nome da interface
   INTERFACE=$(nmcli connection show | tail -n +2 | awk '{print $4}')
@@ -503,11 +451,10 @@ PREFIX=$MASK
 GATEWAY=$GW
 IPV6_DISABLED=yes
 EOF
-
-
+  # Adicionar o UUID
   sed -i "s/UUID.*/UUID=${SAMBA_UUID}/" /etc/sysconfig/network-scripts/ifcfg-"${INTERFACE}"
 
-  #Reiniciar maquina caso o ip fornecido na instalação seja diferente do ip atual, para evitar problema com o DC
+  # Criar arquivo de controle
   echo "Configuracao realizada, função executada foi $CONTROLE" | tee > $CONTROLE
 
   # Se o endereço configurado for diferente do ip atual, o servidor será reiniciado
@@ -519,25 +466,24 @@ EOF
 _SAMBA_INST()
 {
   _VERIFICAR_ROOT
+  _VERIFICAR_OS
+
   CONTROLE="/tmp/controle_samba_inst.txt"
-  LOG_ERRO="/tmp/erro_install_samba.txt"
   SAMBA_DB="/tmp/samba.db"
   SAMBA_PATH="/usr/local/samba"
 
-
-  [[ -f $CONTROLE ]] && _MSG_ERRO_INST $CONTROLE
-  
-  [[ -f $SAMBA_DB ]] || _MSG_ERRO $SAMBA_DB "O Arquivo $SAMBA_DB não está acessível.\nInstalação finalizada"     
+  [[ -f $CONTROLE ]] && _MSG_ERRO_INFO $CONTROLE
+  [[ -f $SAMBA_DB ]] || _MSG_ERRO_INFO "O Arquivo $SAMBA_DB não está acessível.\nInstalação finalizada"     
     
-  SAMBA_DOMIN=$(grep -i "dominio" /tmp/samba.db   | cut -d "=" -f 2 | cut -d "." -f 1)
-  SAMBA_REALM=$(grep -i "dominio" /tmp/samba.db   | cut -d "=" -f 2)
-  SAMBA_SENHA=$(grep -i "senha" /tmp/samba.db     | cut -d "=" -f 2)
-  SAMBA_IPSRV=$(grep -i "ip" /tmp/samba.db        | cut -d "=" -f 2 | cut -d "/" -f 1)
-  SAMBA_HOSTN=$(grep -i "hostname" /tmp/samba.db  | cut -d "=" -f 2)
-  SAMBA_IFACE=$(grep -i "^rede" /tmp/samba.db     | cut -d "=" -f 2)
+  SAMBA_DOMIN=$(grep -i "dominio"   /tmp/samba.db | cut -d "=" -f 2 | cut -d "." -f 1)
+  SAMBA_REALM=$(grep -i "dominio"   /tmp/samba.db | cut -d "=" -f 2)
+  SAMBA_SENHA=$(grep -i "senha"     /tmp/samba.db | cut -d "=" -f 2)
+  SAMBA_IPSRV=$(grep -i "ip"        /tmp/samba.db | cut -d "=" -f 2 | cut -d "/" -f 1)
+  SAMBA_HOSTN=$(grep -i "hostname"  /tmp/samba.db | cut -d "=" -f 2)
+  SAMBA_IFACE=$(grep -i "^rede"     /tmp/samba.db | cut -d "=" -f 2)
 
   # Testando Ip do Samba
-  if ! ping -c 1 "$SAMBA_IPSRV" ; then _MSG_ERRO "O IP $SAMBA_IPSRV não está acessível.\nInstalação finalizada" ; fi 
+  ping -c 2 -w 5 "$SAMBA_IPSRV" || _MSG_ERRO_INFO "O IP $SAMBA_IPSRV não está acessível.\nInstalação finalizada" 
 
   whiptail --title "Os dados estao corretos ?" \
   --yesno "Dominio.= [ ${SAMBA_DOMIN^^} ]\nReino...= [ ${SAMBA_REALM^^} ]\nSenha...= [ ${SAMBA_SENHA} ]" --fb 15 40
@@ -550,28 +496,32 @@ _SAMBA_INST()
   CHRONY_CONF=$(find /etc/ -type f -iname chrony.conf)
 
   cat >> "$CHRONY_CONF" << EOF
+# Configuração adicional
 log measurements statistics tracking
 maxupdateskew 100.0
 hwclockfile /etc/adjtime
 ntpsigndsocket $SAMBA_PATH/var/lib/ntp_signd
 EOF
+
+  # Reiniciar servidor de hora
   systemctl restart chronyd 1> /dev/null
 
-  cp /etc/nsswitch.conf{,.bkp}
-  sed -i 's/^passwd.*/passwd:\ files\ winbind/g' /etc/nsswitch.conf
-  sed -i 's/^group.*/group:\ files\ winbind/g'   /etc/nsswitch.conf  
+  NSSWITCH_CONF=$(find /etc/ -type f -iname nsswitch.conf)
+  cp "$NSSWITCH_CONF"{,.bkp}
+  sed -i 's/^passwd.*/passwd:\ files\ winbind/g' "$NSSWITCH_CONF"
+  sed -i 's/^group.*/group:\ files\ winbind/g'   "$NSSWITCH_CONF"
 
-  mkdir -p $SAMBA_PATH/var/lib/ntp_signd/
+  mkdir -p $SAMBA_PATH/var/lib/ntp_signd/ || _MSG_ERRO_INFO "Erro ao criar pasta"
   chmod 0750 $SAMBA_PATH/var/lib/ntp_signd/
   chown root.chrony $SAMBA_PATH/var/lib/ntp_signd/
 
-  touch /var/named/data/named_mem_stats.txt
-  touch /var/named/data/named_stats.txt 
-  touch /var/named/data/cache_dump.db
-  chown named.named /var/named -R
+  touch /var/named/data/named_mem_stats.txt || _MSG_ERRO_INFO "Erro ao arquivo named_mem_stats"
+  touch /var/named/data/named_stats.txt     || _MSG_ERRO_INFO "Erro ao arquivo named_stats"
+  touch /var/named/data/cache_dump.db       || _MSG_ERRO_INFO "Erro ao arquivo cache_dump"
+  chown named.named /var/named -R           || _MSG_ERRO_INFO "Erro ao dar permissão para a pasta var/named"
   cp $SAMBA_PATH/bind-dns/named.conf{,.bkp}
 
-  NAMED_VERSION=$(rpm -qa bind |cut -d "-" -f 2 |cut -d "." -f 2)
+  NAMED_VERSION=$(rpm -qa bind |cut -d "-" -f 2 |cut -d "." -f 2) || _MSG_ERRO_INFO "Versão named não encontrada"
   chown named.named $SAMBA_PATH/bind-dns/named.conf
   chown named.named $SAMBA_PATH/bind-dns -R
   chown root.named $SAMBA_PATH/lib/bind9/dlz_bind9_"$NAMED_VERSION".so
@@ -641,11 +591,11 @@ EOF
   sed -i '26i dns=none' /etc/NetworkManager/NetworkManager.conf
 
   cp /usr/lib/systemd/system/samba.service /root/samba.service.bkp
-  sed -i 's/notify/forking/' /usr/lib/systemd/system/samba.service
-  sed -i 's/--.*/-D/' /usr/lib/systemd/system/samba.service
+  sed -i 's/notify/forking/'  /usr/lib/systemd/system/samba.service
+  sed -i 's/--.*/-D/'         /usr/lib/systemd/system/samba.service
 
   systemctl daemon-reload
-  systemctl enable --now samba
+  systemctl enable --now samba || _MSG_ERRO_INFO "Erro ao iniciar o serviço do SAMBA"
     
     #Here document para criar arquivo de dns
   chattr -i /etc/resolv.conf
@@ -666,6 +616,7 @@ EOF
   sleep 2
     
   SAMBA_CFSMB=$(find "${SAMBA_PATH}" -iname smb.conf)
+  \cp "$SAMBA_CFSMB" /root/smb.conf.bkp
 
   # Configuração do arquivo smb.conf
   cat > "${SAMBA_CFSMB}" << EOF
@@ -676,8 +627,8 @@ EOF
         server services = s3fs, rpc, nbt, wrepl, ldap, cldap, kdc, drepl, winbindd, ntp_signd, kcc, dnsupdate
         workgroup = ${SAMBA_DOMIN^^}
         idmap_ldb:use rfc2307 = yes
-        #option="interfaces=lo ${SAMBA_IFACE}
-        #bind interfaces only = yes
+        interfaces=lo ${SAMBA_IFACE}
+        bind interfaces only = yes
         template shell = /bin/bash
         template homedir = /home/%U
         winbind enum users = yes
@@ -709,9 +660,9 @@ EOF
 
   whiptail --title "Politica de senha" --msgbox "$($SAMBA_PATH/bin/samba-tool domain passwordsettings show)" --fb 20 50  
 
-  "$SAMBA_PATH"/bin/net rpc rights grant "${SAMBA_DOMIN^^}\Domain Admins" SeDiskOperatorPrivilege -U"${SAMBA_DOMIN^^}\administrator%$SAMBA_SENHA" > /dev/null 2>&1
-  "$SAMBA_PATH"/bin/net rpc rights list accounts -U"${SAMBA_DOMIN^^}\administrator%${SAMBA_SENHA}" 1> /dev/null 2>> "$LOG_ERRO"
-  "$SAMBA_PATH"/bin/smbcontrol all reload-config 1> /dev/null 2>> "$LOG_ERRO"
+  "$SAMBA_PATH"/bin/net rpc rights grant "${SAMBA_DOMIN^^}\Domain Admins" SeDiskOperatorPrivilege -U"${SAMBA_DOMIN^^}\administrator%$SAMBA_SENHA"
+  "$SAMBA_PATH"/bin/net rpc rights list accounts -U"${SAMBA_DOMIN^^}\administrator%${SAMBA_SENHA}"
+  "$SAMBA_PATH"/bin/smbcontrol all reload-config
 
   IP_REVERSO=$(_REVERSO)
   "$SAMBA_TOOL" dns zonecreate "${SAMBA_HOSTN}" "${IP_REVERSO}" -UAdministrator%"${SAMBA_SENHA}"
@@ -722,15 +673,34 @@ EOF
   sed -i '/AAAA/d' /var/named/named.ca
 
   $SAMBA_PATH/sbin/samba_dnsupdate
-  systemctl restart samba.service 1> /dev/null 2>> "$LOG_ERRO"
-  systemctl restart named.service 1> /dev/null 2>> "$LOG_ERRO"
+  systemctl restart samba.service 1> /dev/null
+  systemctl restart named.service 1> /dev/null
 
-  sed -i '8i After=samba.service' /lib/systemd/system/named.service 1> /dev/null 2>> ${LOG_ERRO}
-  systemctl daemon-reload 1> /dev/null 2>> ${LOG_ERRO}
+  sed -i '8i After=samba.service' /lib/systemd/system/named.service 1> /dev/null
+  systemctl daemon-reload 1> /dev/null
 
   echo "Configuracao realizada, função executada foi _CONF_SAMBA" | tee > $CONTROLE
 
-  if whiptail --title "Aplicar Configurações - SAMBA4" --yesno "Deseja reiniciar o servidor" 10 50 ; then reboot ; fi 
+  # Realizar testes
+  clear
+  SMB_KLIST=$(klist) 1> /dev/null
+  SMB_VERSAO="$(smbclient --version)"                         1> /dev/null
+  SMB_HOST=$(host -t A "$SAMBA_REALM")                        1> /dev/null
+  SMB_SHARE=$(smbclient -L localhost -U%)                     1> /dev/null
+  SMB_LDAP=$(host -t SRV _ldap._tcp."$SAMBA_REALM")           1> /dev/null
+  SMB_KERBEROS=$(host -t SRV _kerberos._udp."$SAMBA_REALM".)  1> /dev/null
+
+  # Exibir informações
+  whiptail --title "Informações" --msgbox \
+   "\n[Versão...:] $SMB_VERSAO 
+    \n[Share....:] $SMB_SHARE
+    \n[Host.....:] $SMB_HOST
+    \n[Ldap.....:] $SMB_LDAP
+    \n[Kerberos.:] $SMB_KERBEROS
+    \n[klist....:] $SMB_KLIST " --fb 30 100
+
+
+  if whiptail --title "Aplicar Configurações - SAMBA $(smbclient --version | awk '{print$2}')" --yesno "Deseja reiniciar o servidor" 10 50 ; then reboot ; fi 
 }
 # Fim declaração de função
 
@@ -771,22 +741,3 @@ _Menu() {
     esac
 }
 _Menu
-
-
-#_CONFIGURAR
-#_CONF_SAMBA
-#_SAMBA_INST
-
-
-# Extra criar compartilhamento
-
-# chown root:"Domain Admins" /srv/samba/Demo/
-# chmod 0770 /srv/samba/Demo/
-
-#Add the [Demo] share definition to your smb.conf file:
-
-#[Demo]
-#       path = /srv/samba/Demo/
-#       read only = no
-
-
