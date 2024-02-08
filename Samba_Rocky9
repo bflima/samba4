@@ -702,7 +702,65 @@ EOF
 
   if whiptail --title "Aplicar Configurações - SAMBA $(smbclient --version | awk '{print$2}')" --yesno "Deseja reiniciar o servidor" 10 50 ; then reboot ; fi 
 }
+# Fim
+
+################################################################################
+_SAMBA_CHECK()
+{
+  clear
+  # Verificar se o samba está em execução
+  systemctl status samba.service | grep -iq active || _MSG_ERRO_INFO "Samba não instalado ou serviço não está em execução"
+  
+  # Carregar informações
+  SAMBA_DB="/tmp/samba.db"
+  [[ -f $SAMBA_DB ]] || _MSG_ERRO_INFO "O Arquivo $SAMBA_DB não está acessível.\nInstalação finalizada" 
+  
+  MSG_TESTE="
+  Será realizado as seguintes operações:
+
+  Verificação e correção banco de dados.....-> (dbcheck)
+  Verificação e correção volume do systema..-> (sysvol)
+  Atualização dos registros de dns..........-> (samba_dns)
+  Recarregar as configurações do SAMBA......-> (reload)"
+
+  if ! whiptail --title "Validar recursos SAMBA $(smbclient --version | awk '{print$2}')" --yesno "$MSG_TESTE" 20 65 ; then exit 20 ; fi 
+
+  SAMBA_TOOL=$(find /usr -iname samba-tool)
+  "$SAMBA_TOOL" domain info "$(hostname)" > /tmp/samba_dc_info
+  
+  SAMBA_DOM=$(grep -i ^domain /tmp/samba_dc_info | awk '{print $3}')
+  DNS_UPDATE=$(find /usr -iname samba_dnsupdate)
+  SMBCONTROL=$(find /usr -iname smbcontrol)
+  SAMBA_SENHA=$(grep -i "senha"     /tmp/samba.db | cut -d "=" -f 2)
+
+
+  clear
+  "$SAMBA_TOOL" dbcheck                                             && { sleep 2; echo -e "\nVerificando" ; }
+  "$SAMBA_TOOL" dbcheck --cross-ncs                                 && { sleep 2; echo -e "\nVerificando" ; }
+  "$SAMBA_TOOL" dbcheck --cross-ncs --fix --yes                     && { sleep 2; echo -e "\nVerificando" ; }
+  "$SAMBA_TOOL" dbcheck --cross-ncs --reset-well-known-acls --fix   && { sleep 2; echo -e "\nVerificando" ; }
+  "$SAMBA_TOOL" ntacl sysvolcheck                                   && { sleep 2; echo -e "\nVerificando" ; }
+  "$SAMBA_TOOL" ntacl sysvolreset                                   && { sleep 2; echo -e "\nVerificando" ; }
+
+  clear
+  wbinfo --ping-dc                          && { sleep 2; echo -e "\nVerificando" ; }
+  getent passwd Administrator               && { sleep 2; echo -e "\nVerificando" ; }
+  host -t SRV _ldap._tcp."$SAMBA_DOM".      && { sleep 2; echo -e "\nVerificando" ; }
+  host -t SRV _kerberos._udp."$SAMBA_DOM".  && { sleep 2; echo -e "\nVerificando" ; }
+  host -t A "$(hostname)"."$SAMBA_DOM".     && { sleep 2; echo -e "\nVerificando" ; }
+  wbinfo --ping-dc                          && { sleep 2; echo -e "\nVerificando" ; }
+  samba-tool dns query "$(hostname)" "$SAMBA_DOM" @ ALL -UAdministrator%"${SAMBA_SENHA}"  && { sleep 2; echo -e "\nVerificando" ; }
+  host -t SRV _ldap._tcp.Default-First-Site-Name._sites.ForestDnsZones."$SAMBA_DOM".      && { sleep 2; echo -e "\nVerificando" ; }
+  
+  clear
+  "$DNS_UPDATE" --verbose         && { sleep 2; echo -e "\nVerificando" ; } && { sleep 2; echo -e "Atualizando\n" ; }
+  "$SMBCONTROL" all reload-config && { sleep 2; echo -e "\nVerificando" ; } && { sleep 2; echo -e "Recarregando\n" ; }
+  
+
+}
 # Fim declaração de função
+
+
 
 #############################################################################################################################
 #                                                 Inicio do script                                                          #
@@ -710,11 +768,12 @@ EOF
 
 _Menu() {
     SEL=$(whiptail --title "Menu" --fb --menu "Escolha uma opção" 15 60 6 \
-        "1" "Instalar Samba " \
+        "1" "Instalar Samba "           \
         "2" "Baixar pacotes e compilar" \
         "3" "Configurar"                \
         "4" "Instalar"                  \
-        "5" "Sair" 3>&1 1>&2 2>&3)
+        "5" "Realizar Teste do Samba"   \
+        "9" "Sair" 3>&1 1>&2 2>&3)
     case $SEL in
         1)
             echo "Escolhida 1"
@@ -735,9 +794,33 @@ _Menu() {
            _SAMBA_INST
         ;;
         5)
+            echo "Escolhida 4"
+           _SAMBA_CHECK
+        ;;
+        9)
             echo "Escolhida 5"
             exit
         ;;
     esac
 }
 _Menu
+
+
+#_CONFIGURAR
+#_CONF_SAMBA
+#_SAMBA_INST
+
+
+# Extra criar compartilhamento
+
+# chown root:"Domain Admins" /srv/samba/Demo/
+# chmod 0770 /srv/samba/Demo/
+
+#Add the [Demo] share definition to your smb.conf file:
+
+#[Demo]
+#       path = /srv/samba/Demo/
+#       read only = no
+
+
+
