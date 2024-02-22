@@ -484,6 +484,7 @@ _SAMBA_INST()
   SAMBA_DOMIN=$(grep -i "dominio"   /tmp/samba.db | cut -d "=" -f 2 | cut -d "." -f 1)
   SAMBA_REALM=$(grep -i "dominio"   /tmp/samba.db | cut -d "=" -f 2)
   SAMBA_SENHA=$(grep -i "senha"     /tmp/samba.db | cut -d "=" -f 2)
+  SAMBA_MASCA=$(grep -i "^mascara"  /tmp/samba.db | cut -d "=" -f 2)
   SAMBA_IPSRV=$(grep -i "ip"        /tmp/samba.db | cut -d "=" -f 2 | cut -d "/" -f 1)
   SAMBA_HOSTN=$(grep -i "hostname"  /tmp/samba.db | cut -d "=" -f 2)
   SAMBA_IFACE=$(grep -i "^rede"     /tmp/samba.db | cut -d "=" -f 2)
@@ -673,6 +674,11 @@ EOF
   IP_REVERSO=$(_REVERSO)
   "$SAMBA_TOOL" dns zonecreate "${SAMBA_HOSTN}" "${IP_REVERSO}" -UAdministrator%"${SAMBA_SENHA}"
   "$SAMBA_TOOL" dns add "${SAMBA_HOSTN}" "${IP_REVERSO}" "${SAMBA_IPSRV##*.}" PTR "${SAMBA_HOSTN}.${SAMBA_REALM}" -UAdministrator%"${SAMBA_SENHA}"
+  
+  # Criar rede sites e serviços
+  SITE_NAME=$("$SAMBA_TOOL" sites list)
+  NETWORK=$(ipcalc -n "$SAMBA_IPSRV"/"$SAMBA_MASCA" | cut -d "=" -f 2)
+  "$SAMBA_TOOL" sites subnet create "$NETWORK"/"$SAMBA_MASCA" "$SITE_NAME"
 
   # Deletar registros ipv6 da pesquisa, se utilizar ipv6 remover as 2 linhas abaixo, se usar ipv6 na rede ignorar as 2 linhas abaixo
   \cp /var/named/named.ca /root/
